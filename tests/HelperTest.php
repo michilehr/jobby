@@ -2,49 +2,38 @@
 
 namespace Jobby\Tests;
 
+use Jobby\Exception;
 use Jobby\Helper;
 use Jobby\Jobby;
+use PHPUnit\Framework\TestCase;
+use Symfony\Component\Mailer\MailerInterface;
 
 /**
- * @coversDefaultClass Jobby\Helper
+ * @coversDefaultClass Helper
  */
-class HelperTest extends \PHPUnit_Framework_TestCase
+class HelperTest extends TestCase
 {
-    /**
-     * @var Helper
-     */
-    private $helper;
+    private Helper $helper;
 
-    /**
-     * @var string
-     */
-    private $tmpDir;
+    private string $lockFile;
 
-    /**
-     * @var string
-     */
-    private $lockFile;
-
-    /**
-     * @var string
-     */
-    private $copyOfLockFile;
+    private string $copyOfLockFile;
 
     /**
      * {@inheritdoc}
      */
-    protected function setUp()
+    protected function setUp(): void
     {
         $this->helper = new Helper();
-        $this->tmpDir = $this->helper->getTempDir();
-        $this->lockFile = $this->tmpDir . '/test.lock';
-        $this->copyOfLockFile = $this->tmpDir . "/test.lock.copy";
+        $tmpDir = $this->helper->getTempDir();
+        $this->lockFile = $tmpDir . '/test.lock';
+        $this->copyOfLockFile = $tmpDir . "/test.lock.copy";
     }
 
     /**
      * {@inheritdoc}
      */
-    protected function tearDown()
+    protected function tearDown(): void
     {
         unset($_SERVER['APPLICATION_ENV']);
     }
@@ -61,10 +50,7 @@ class HelperTest extends \PHPUnit_Framework_TestCase
         $this->assertEquals($expected, $actual);
     }
 
-    /**
-     * @return array
-     */
-    public function dataProviderTestEscape()
+    public static function dataProviderTestEscape(): array
     {
         return [
             ['lower', 'lower'],
@@ -182,16 +168,15 @@ class HelperTest extends \PHPUnit_Framework_TestCase
 
     /**
      * @covers ::releaseLock
-     * @expectedException \Jobby\Exception
      */
     public function testReleaseNonExistin()
     {
+        $this->expectException(Exception::class);
         $this->helper->releaseLock($this->lockFile);
     }
 
     /**
      * @covers ::acquireLock
-     * @expectedException \Jobby\InfoException
      */
     public function testExceptionIfAquireFails()
     {
@@ -201,15 +186,17 @@ class HelperTest extends \PHPUnit_Framework_TestCase
         $res = flock($fh, LOCK_EX | LOCK_NB);
         $this->assertTrue($res);
 
+        $this->expectException(Exception::class);
         $this->helper->acquireLock($this->lockFile);
     }
 
     /**
      * @covers ::acquireLock
-     * @expectedException \Jobby\Exception
      */
     public function testAquireLockShouldFailOnSecondTry()
     {
+        $this->expectException(Exception::class);
+
         $this->helper->acquireLock($this->lockFile);
         $this->helper->acquireLock($this->lockFile);
     }
@@ -265,7 +252,7 @@ class HelperTest extends \PHPUnit_Framework_TestCase
      */
     public function testSendMail()
     {
-        $mailer = $this->getSwiftMailerMock();
+        $mailer = $this->getMailerMock();
         $mailer->expects($this->once())
             ->method('send')
         ;
@@ -280,33 +267,24 @@ class HelperTest extends \PHPUnit_Framework_TestCase
 
         $host = $helper->getHost();
         $email = "jobby@$host";
-        $this->assertContains('job', $mail->getSubject());
-        $this->assertContains("[$host]", $mail->getSubject());
-        $this->assertEquals(1, count($mail->getFrom()));
-        $this->assertEquals('jobby', current($mail->getFrom()));
-        $this->assertEquals($email, current(array_keys($mail->getFrom())));
-        $this->assertEquals($email, current(array_keys($mail->getSender())));
-        $this->assertContains($config['output'], $mail->getBody());
-        $this->assertContains('message', $mail->getBody());
+        $this->assertStringContainsString('job', $mail->getSubject());
+        $this->assertStringContainsString("[$host]", $mail->getSubject());
+        $this->assertCount(1, $mail->getFrom());
+        $this->assertEquals('jobby', current($mail->getFrom())->getName());
+        $this->assertEquals($email, current($mail->getFrom())->getAddress());
+        $this->assertStringContainsString($config['output'], $mail->getTextBody());
+        $this->assertStringContainsString('message', $mail->getTextBody());
     }
 
-    /**
-     * @return \Swift_Mailer
-     */
-    private function getSwiftMailerMock()
+    private function getMailerMock()
     {
-        $nullTransport = new \Swift_NullTransport();
-
-        return $this->getMock('Swift_Mailer', [], [$nullTransport]);
+        return $this->createMock(MailerInterface::class);
     }
 
-    /**
-     * @return void
-     */
-    public function testItReturnsTheCorrectNullSystemDeviceForUnix()
+    public function testItReturnsTheCorrectNullSystemDeviceForUnix(): void
     {
         /** @var Helper $helper */
-        $helper = $this->getMock("\\Jobby\\Helper", ["getPlatform"]);
+        $helper = $this->createPartialMock(Helper::class, ["getPlatform"]);
         $helper->expects($this->once())
             ->method("getPlatform")
             ->willReturn(Helper::UNIX);
@@ -320,7 +298,7 @@ class HelperTest extends \PHPUnit_Framework_TestCase
     public function testItReturnsTheCorrectNullSystemDeviceForWindows()
     {
         /** @var Helper $helper */
-        $helper = $this->getMock("\\Jobby\\Helper", ["getPlatform"]);
+        $helper = $this->createPartialMock(Helper::class, ["getPlatform"]);
         $helper->expects($this->once())
                ->method("getPlatform")
                ->willReturn(Helper::WINDOWS);
