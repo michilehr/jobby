@@ -18,7 +18,7 @@
     "php": ">=8.0",
     "dragonmantank/cron-expression": "^3.0",
     "opis/closure": "^3.5",
-    "symfony/mailer": "^6.0",
+    "symfony/mailer": "^7.0",
     "symfony/process": "^6.0"
   },
   "require-dev": {
