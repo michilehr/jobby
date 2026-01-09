@@ -1,16 +1,17 @@
 <?php
 namespace Jobby;
 
+use Symfony\Component\Mailer\Mailer;
+use Symfony\Component\Mailer\MailerInterface;
+use Symfony\Component\Mailer\Transport;
+use Symfony\Component\Mailer\Transport\SendmailTransport;
+use Symfony\Component\Mime\Address;
+use Symfony\Component\Mime\Email;
+
 class Helper
 {
-    /**
-     * @var int
-     */
     const UNIX = 0;
 
-    /**
-     * @var int
-     */
     const WINDOWS = 1;
 
     /**
@@ -18,27 +19,14 @@ class Helper
      */
     private $lockHandles = [];
 
-    /**
-     * @var \Swift_Mailer
-     */
-    private $mailer;
+    private ?MailerInterface $mailer;
 
-    /**
-     * @param \Swift_Mailer $mailer
-     */
-    public function __construct(\Swift_Mailer $mailer = null)
+    public function __construct(MailerInterface $mailer = null)
     {
         $this->mailer = $mailer;
     }
 
-    /**
-     * @param string $job
-     * @param array  $config
-     * @param string $message
-     *
-     * @return \Swift_Message
-     */
-    public function sendMail($job, array $config, $message)
+    public function sendMail(string $job, array $config, string $message): Email
     {
         $host = $this->getHost();
         $body = <<<EOF
@@ -49,56 +37,53 @@ You can find its output in {$config['output']} on $host.
 Best,
 jobby@$host
 EOF;
-        $mail = new \Swift_Message();
-        $mail->setTo(explode(',', $config['recipients']));
-        $mail->setSubject("[$host] '{$job}' needs some attention!");
-        $mail->setBody($body);
-        $mail->setFrom([$config['smtpSender'] => $config['smtpSenderName']]);
-        $mail->setSender($config['smtpSender']);
 
         $mailer = $this->getCurrentMailer($config);
+
+        $mail = new Email();
+        foreach (explode(',', $config['recipients']) as $recipient) {
+            $mail->addTo($recipient);
+        }
+        $mail->subject("[$host] '{$job}' needs some attention!");
+        $mail->text($body);
+        $mail->from(new Address($config['smtpSender'], $config['smtpSenderName']));
+        $mail->sender(new Address($config['smtpSender']));
+
         $mailer->send($mail);
 
         return $mail;
     }
 
-    /**
-     * @param array $config
-     *
-     * @return \Swift_Mailer
-     */
-    private function getCurrentMailer(array $config)
+    private function getCurrentMailer(array $config): MailerInterface
     {
         if ($this->mailer !== null) {
             return $this->mailer;
         }
 
-        $swiftVersion = (int) explode('.', \Swift::VERSION)[0];
-
-        if ($config['mailer'] === 'smtp') {
-            $transport = new \Swift_SmtpTransport(
+        if (array_key_exists('mailerDsn', $config)) {
+            $dsn = $config['mailerDsn'];
+            $transport = Transport::fromDsn($dsn);
+        } else if ($config['mailer'] === 'smtp') {
+            $dsn = sprintf(
+                "smtp://%s:%s@%s:%s",
+                $config['smtpUsername'],
+                $config['smtpPassword'],
                 $config['smtpHost'],
-                $config['smtpPort'],
-                $config['smtpSecurity']
+                $config['smtpPort']
             );
-            $transport->setUsername($config['smtpUsername']);
-            $transport->setPassword($config['smtpPassword']);
-        } elseif ($swiftVersion < 6 && $config['mailer'] === 'mail') {
-            $transport = \Swift_MailTransport::newInstance();
+            $transport = Transport::fromDsn($dsn);
         } else {
-            $transport = new \Swift_SendmailTransport();
+            $transport = new SendmailTransport();
         }
 
-        return new \Swift_Mailer($transport);
+        return new Mailer($transport);
     }
 
     /**
-     * @param string $lockFile
-     *
      * @throws Exception
      * @throws InfoException
      */
-    public function acquireLock($lockFile)
+    public function acquireLock(string $lockFile): void
     {
         if (array_key_exists($lockFile, $this->lockHandles)) {
             throw new Exception("Lock already acquired (Lockfile: $lockFile).");
@@ -130,11 +115,9 @@ EOF;
     }
 
     /**
-     * @param string $lockFile
-     *
      * @throws Exception
      */
-    public function releaseLock($lockFile)
+    public function releaseLock(string $lockFile)
     {
         if (!array_key_exists($lockFile, $this->lockHandles)) {
             throw new Exception("Lock NOT held - bug? Lockfile: $lockFile");
@@ -148,12 +131,7 @@ EOF;
         unset($this->lockHandles[$lockFile]);
     }
 
-    /**
-     * @param string $lockFile
-     *
-     * @return int
-     */
-    public function getLockLifetime($lockFile)
+    public function getLockLifetime(string $lockFile): int
     {
         if (!file_exists($lockFile)) {
             return 0;
@@ -173,10 +151,7 @@ EOF;
         return (time() - $stat['mtime']);
     }
 
-    /**
-     * @return string
-     */
-    public function getTempDir()
+    public function getTempDir(): string
     {
         // @codeCoverageIgnoreStart
         if (function_exists('sys_get_temp_dir')) {
@@ -195,26 +170,17 @@ EOF;
         return $tmp;
     }
 
-    /**
-     * @return string
-     */
-    public function getHost()
+    public function getHost(): string
     {
         return php_uname('n');
     }
 
-    /**
-     * @return string|null
-     */
-    public function getApplicationEnv()
+    public function getApplicationEnv(): string|null
     {
-        return isset($_SERVER['APPLICATION_ENV']) ? $_SERVER['APPLICATION_ENV'] : null;
+        return $_SERVER['APPLICATION_ENV'] ?? null;
     }
 
-    /**
-     * @return int
-     */
-    public function getPlatform()
+    public function getPlatform(): int
     {
         if (strncasecmp(PHP_OS, 'Win', 3) === 0) {
             // @codeCoverageIgnoreStart
@@ -225,12 +191,7 @@ EOF;
         return self::UNIX;
     }
 
-    /**
-     * @param string $input
-     *
-     * @return string
-     */
-    public function escape($input)
+    public function escape(string $input): string
     {
         $input = strtolower($input);
         $input = preg_replace('/[^a-z0-9_. -]+/', '', $input);
@@ -241,7 +202,7 @@ EOF;
         return $input;
     }
 
-    public function getSystemNullDevice()
+    public function getSystemNullDevice(): string
     {
         $platform = $this->getPlatform();
         if ($platform === self::UNIX) {
