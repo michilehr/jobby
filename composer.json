@@ -18,8 +18,8 @@
     "php": ">=8.0",
     "dragonmantank/cron-expression": "^3.0",
     "opis/closure": "^3.5",
-    "symfony/mailer": "^7.0",
-    "symfony/process": "^7.0"
+    "symfony/mailer": "^8.0",
+    "symfony/process": "^8.0"
   },
   "require-dev": {
     "mp091689/dump-die": "^1.0",
